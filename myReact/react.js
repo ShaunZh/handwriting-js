@@ -3,7 +3,7 @@
  * @Author: Hexon
  * @Date: 2021-07-29 11:07:48
  * @LastEditors: Hexon
- * @LastEditTime: 2021-07-30 14:18:50
+ * @LastEditTime: 2021-07-30 15:50:55
  */
 
 function createElement(type, props, ...children) {
@@ -28,28 +28,33 @@ function createTextElement(text) {
   };
 }
 
-function render(element, container) {
+function createDom(fiber) {
   const dom =
     element.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
-      : document.createElement(element.type);
+      : document.createElement(fiber.type);
 
   const isProperty = (key) => key !== "children";
 
   // 将非children属性添加到dom元素上
-  Object.keys(element.props)
+  Object.keys(fiber.props)
     .filter(isProperty)
     .forEach((name) => (dom[name] = element.props[name]));
 
-  // 递归渲染
-  element.props.children.forEach((child) => render(child, dom));
+  return dom;
+}
+let nextOfUnitWork = null;
 
-  container.appendChild(dom);
+function render(element, container) {
+  nextOfUnitWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+  };
 }
 
 // --- concurrent mode ---
-let nextOfUnitWork = null;
-
 /**
  * @description:
  * @param {*} deadline
@@ -66,10 +71,60 @@ function workLoop(deadline) {
 }
 
 requestIdleCallback(workLoop);
-
-function performUnitOfWork(nextUnitWork) {}
-
 // --- end concurrent mode ---
+
+/**
+ * @description: 1. 创建dom，并添加dom；2. 为elements创建fiber；3. 查找next work，也就是下一个fiber(按深度优先)
+ * @param {*} fiber
+ * @return {*}
+ */
+function performUnitOfWork(fiber) {
+  // 1. add the element to the DOM
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  if (fiber.parent) {
+    fiber.parent.appendChild(fiber.dom);
+  }
+
+  // 2. create the fibers for the element's children
+  const elements = fiber.props.children;
+  let index = 0;
+  let preSibling = null;
+
+  while (index < elements.length) {
+    const element = elements[index];
+
+    const newFiber = {
+      type: element.type,
+      props: element.props,
+      parent: fiber,
+      dom: null,
+    };
+
+    if (index === 0) {
+      fiber.child = newFiber;
+    } else {
+      preSibling.sibling = newFiber;
+    }
+    preSibling = newFiber;
+    index += 1;
+  }
+
+  // 3. select the next unit of work
+  if (fiber.child) {
+    return fiber.child;
+  }
+  // 注：下面使用了深度优先搜索算法
+  let nextFiber = fiber;
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+    nextFiber = nextFiber.parent;
+  }
+}
 
 const Didact = {
   createElement,
