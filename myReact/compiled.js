@@ -3,7 +3,7 @@
  * @Author: Hexon
  * @Date: 2021-07-29 11:07:48
  * @LastEditors: Hexon
- * @LastEditTime: 2021-07-30 16:03:24
+ * @LastEditTime: 2021-07-30 16:21:18
  */
 function createElement(type, props, ...children) {
   return {
@@ -35,14 +35,16 @@ function createDom(fiber) {
 }
 
 let nextOfUnitWork = null;
+let wipRoot = null;
 
 function render(element, container) {
-  nextOfUnitWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element]
     }
   };
+  nextOfUnitWork = wipRoot;
 } // --- concurrent mode ---
 
 /**
@@ -65,23 +67,42 @@ function workLoop(deadline) {
 }
 
 requestIdleCallback(workLoop); // --- end concurrent mode ---
+// commit render
 
+function commitRoot() {
+  commitRoot(wipRoot.child);
+  wipRoot = null;
+}
+
+function commitWork(fiber) {
+  if (fiber) return;
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom); // 递归添加所有的node到dom
+
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
 /**
  * @description: 1. 创建dom，并添加dom；2. 为elements创建fiber；3. 查找next work，也就是下一个fiber(按深度优先)
  * @param {*} fiber
  * @return {*}
  */
 
+
 function performUnitOfWork(fiber) {
   // 1. add the element to the DOM
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
-  } // 注：此处每处理完一个fiber就将其添加到DOM上，在处理完整棵树的过程中，浏览器会中断该过程(因为使用了requestIdleCallback)，
-  // 因此，有可能展示渲染一个不完整的DOM树
+  } // // 注：此处每处理完一个fiber就将其添加到DOM上，在处理完整棵树的过程中，浏览器会中断该过程(因为使用了requestIdleCallback)，
+  // // 因此，有可能展示渲染一个不完整的DOM树
+  // if (fiber.parent) {
+  //   fiber.parent.appendChild(fiber.dom);
+  // }
+  // 当nextOfUnitWork不存在时，说明已经遍历生成了整棵fiber树，接下来就可以commit render
 
 
-  if (fiber.parent) {
-    fiber.parent.appendChild(fiber.dom);
+  if (!nextOfUnitWork && wipRoot) {
+    commitRoot();
   } // 2. create the fibers for the element's children
 
 
