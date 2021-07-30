@@ -3,7 +3,7 @@
  * @Author: Hexon
  * @Date: 2021-07-29 11:07:48
  * @LastEditors: Hexon
- * @LastEditTime: 2021-07-30 13:50:06
+ * @LastEditTime: 2021-07-30 14:18:50
  */
 
 function createElement(type, props, ...children) {
@@ -46,6 +46,30 @@ function render(element, container) {
 
   container.appendChild(dom);
 }
+
+// --- concurrent mode ---
+let nextOfUnitWork = null;
+
+/**
+ * @description:
+ * @param {*} deadline
+ * @return {*}
+ */
+function workLoop(deadline) {
+  let shouldYield = false;
+  while (nextOfUnitWork && !shouldYield) {
+    nextOfUnitWork = performUnitOfWork(nextOfUnitWork);
+    // 计算一个执行周期的时间是否到了
+    shouldYield = deadline.timeRemaining() < 1;
+  }
+  requestIdleCallback(workLoop);
+}
+
+requestIdleCallback(workLoop);
+
+function performUnitOfWork(nextUnitWork) {}
+
+// --- end concurrent mode ---
 
 const Didact = {
   createElement,
