@@ -3,8 +3,18 @@
  * @Author: Hexon
  * @Date: 2021-07-29 11:07:48
  * @LastEditors: Hexon
- * @LastEditTime: 2021-08-01 13:53:47
+ * @LastEditTime: 2021-08-02 11:32:10
  */
+const isEvent = (key) => key.startsWith("on");
+const isProperty = (key) => key !== "children" && !isEvent(key);
+const isNew = (prev, next) => (key) => prev[key] !== next[key];
+const isGone = (prev, next) => (key) => !(key in next);
+let nextOfUnitWork = null;
+let wipRoot = null;
+let currentRoot = null;
+let deletions = null;
+let wipFiber = null;
+let hookIndex = null;
 
 function createElement(type, props, ...children) {
   return {
@@ -38,11 +48,6 @@ function createDom(fiber) {
 
   return dom;
 }
-
-const isEvent = (key) => key.startsWith("on");
-const isProperty = (key) => key !== "children" && !isEvent(key);
-const isNew = (prev, next) => (key) => prev[key] !== next[key];
-const isGone = (prev, next) => (key) => !(key in next);
 
 function updateDom(dom, prevProps, nextProps) {
   // remove old or change event properties
@@ -81,6 +86,7 @@ function updateDom(dom, prevProps, nextProps) {
 
 // commit render
 function commitRoot() {
+  console.log("commitRoot");
   deletions.forEach(commitWork);
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
@@ -128,11 +134,6 @@ function render(element, container) {
   nextOfUnitWork = wipRoot;
 }
 
-let nextOfUnitWork = null;
-let wipRoot = null;
-let currentRoot = null;
-let deletions = null;
-
 // --- concurrent mode ---
 /**
  * @description:
@@ -149,7 +150,6 @@ function workLoop(deadline) {
 
   if (!nextOfUnitWork && wipRoot) {
     commitRoot();
-    console.log("ttt");
   }
   requestIdleCallback(workLoop);
 }
@@ -163,6 +163,7 @@ requestIdleCallback(workLoop);
  * @return {*}
  */
 function performUnitOfWork(fiber) {
+  console.log("performUniOfWork");
   const isFunctionComponent = fiber.type instanceof Function;
 
   if (isFunctionComponent) {
@@ -185,6 +186,9 @@ function performUnitOfWork(fiber) {
 }
 
 function updateFunctionComponent(fiber) {
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
   const children = [fiber.type(fiber.props)];
   reconcileChildren(fiber, children);
 }
@@ -199,11 +203,48 @@ function updateHostComponent(fiber) {
   reconcileChildren(fiber, elements);
 }
 
+function useState(initial) {
+  // 处理调用多次useState
+  const oldHook =
+    wipFiber &&
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: [],
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    console.log("hook", action, hook);
+    hook.state = action(hook.state);
+  });
+
+  // 需要注意的是：setState并不是调用就立即运行的，
+  // 而是需要在下一个render周期(PS: 并不确定是否为render周期，但毫无疑问的是不会立即调用)时才会调用
+  const setState = (action) => {
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    nextOfUnitWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+  return [hook.state, setState];
+}
+
 function reconcileChildren(wipFiber, elements) {
   let index = 0;
   let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
   let preSibling = null;
-  console.log("oldFiber", oldFiber);
+  console.log("reconcileChildren");
   while (index < elements.length || oldFiber) {
     const element = elements[index];
     let newFiber = null;
@@ -260,6 +301,7 @@ function reconcileChildren(wipFiber, elements) {
 const Didact = {
   createElement,
   render,
+  useState,
 };
 
 /** @jsx Didact.createElement */
@@ -269,7 +311,13 @@ function App(props) {
   return <h1>Hi {props.name}</h1>;
 }
 
-const element = <App name="hexon"></App>;
+const Counter = () => {
+  const [counter, setCounter] = Didact.useState(1);
+
+  return <h1 onClick={() => setCounter((c) => c + 1)}>counter: {counter}</h1>;
+};
+
+const element = <Counter />; //<App name="hexon"></App>;
 Didact.render(element, container);
 
 // const updateValue = (e) => {
